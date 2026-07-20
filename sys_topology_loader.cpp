@@ -35,38 +35,52 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
     // 1. EXTRACT WEIGHT BLOBs INTO D3D12 VRAM
     sqlite3_stmt* stmt_tensors;
     sqlite3_prepare_v2(db, "SELECT name, data FROM tensor WHERE data IS NOT NULL", -1, &stmt_tensors, nullptr);
-    size_t loaded_bytes = 0;
-    
-    while (sqlite3_step(stmt_tensors) == SQLITE_ROW) {
+    size_t loaded_bytes = 0;    while (sqlite3_step(stmt_tensors) == SQLITE_ROW) {
         std::string name = reinterpret_cast<const char*>(sqlite3_column_text(stmt_tensors, 0));
         const void* blob = sqlite3_column_blob(stmt_tensors, 1);
         int bytes = sqlite3_column_bytes(stmt_tensors, 1);
         loaded_bytes += bytes;
         
-        int idx = get_or_alloc_index(name);
+        std::string base_name = name;
+        bool is_scale = false, is_zp = false;
+        if (name.find("_scale") != std::string::npos) {
+            base_name = name.substr(0, name.find("_scale"));
+            is_scale = true;
+        } else if (name.find("_zp") != std::string::npos) {
+            base_name = name.substr(0, name.find("_zp"));
+            is_zp = true;
+        }
+        
+        int idx = get_or_alloc_index(base_name);
         auto& t = active_tensors[idx];
         
-        D3D12_HEAP_PROPERTIES heapProps = {};
-        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // Direct upload for weights
-        D3D12_RESOURCE_DESC resDesc = {};
-        resDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        resDesc.Width = bytes;
-        resDesc.Height = 1; resDesc.DepthOrArraySize = 1; resDesc.MipLevels = 1;
-        resDesc.SampleDesc.Count = 1; resDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        
-        g_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &resDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&t.resource));
-        
-        void* pData;
-        t.resource->Map(0, nullptr, &pData);
-        memcpy(pData, blob, bytes);
-        t.resource->Unmap(0, nullptr);
-        
-        t.gpu_va = t.resource->GetGPUVirtualAddress();
-        
-        // Tag Q4 auxiliary bindings
-        if (name.find("_scale") != std::string::npos) t.scales_resource = t.resource;
-        else if (name.find("_zp") != std::string::npos) t.zp_resource = t.resource;
-        else t.is_q4 = true; // Assume main weight blob
+        if (g_device) {
+            D3D12_HEAP_PROPERTIES heapProps = {};
+            heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC resDesc = {};
+            resDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            resDesc.Width = bytes;
+            resDesc.Height = 1; resDesc.DepthOrArraySize = 1; resDesc.MipLevels = 1;
+            resDesc.SampleDesc.Count = 1; resDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            
+            Microsoft::WRL::ComPtr<ID3D12Resource> temp_res;
+            g_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &resDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&temp_res));
+            
+            void* pData;
+            temp_res->Map(0, nullptr, &pData);
+            memcpy(pData, blob, bytes);
+            temp_res->Unmap(0, nullptr);
+            
+            if (is_scale) {
+                t.scales_resource = temp_res;
+            } else if (is_zp) {
+                t.zp_resource = temp_res;
+            } else {
+                t.resource = temp_res;
+                t.gpu_va = temp_res->GetGPUVirtualAddress();
+                t.is_q4 = true;
+            }
+        }
     }
     sqlite3_finalize(stmt_tensors);
 

@@ -25,9 +25,9 @@ set(CORE_SOURCES
 # 1. Build the shared DLL
 add_library(dpx_engine SHARED dpx_api_mount.cpp ${CORE_SOURCES})
 target_include_directories(dpx_engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(dpx_engine PRIVATE d3d12.lib dxgi.lib)
+target_link_libraries(dpx_engine PRIVATE d3d12.lib dxgi.lib synchronization.lib)
 
 # 2. Build the standalone EXE
 add_executable(dpx main.cpp ${CORE_SOURCES})
 target_include_directories(dpx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(dpx PRIVATE d3d12.lib dxgi.lib)
+target_link_libraries(dpx PRIVATE d3d12.lib dxgi.lib synchronization.lib)
