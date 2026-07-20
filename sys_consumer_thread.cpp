@@ -153,11 +153,22 @@ void sys_run_consumer_loop(SysSPSCRingBuffer& ring, int prompt_size) {
                                         
         policy.begin_frame_clock();
         
+        // Dynamic Input Binding directly from the push buffer!
+        if (g_decoder_orchestrator.input_tensor_index != -1 && g_decoder_orchestrator.input_tensor_index < (int)g_decoder_orchestrator.active_tensors.size()) {
+            g_decoder_orchestrator.active_tensors[g_decoder_orchestrator.input_tensor_index].resource = frame.input_activations.resource;
+            g_decoder_orchestrator.active_tensors[g_decoder_orchestrator.input_tensor_index].gpu_va = frame.input_activations.gpu_va;
+        }
+
         g_embed_orchestrator.process_token_frame(frame.monotonic_id, policy);
         g_decoder_orchestrator.process_token_frame(frame.monotonic_id, policy);
         
-        if (g_decoder_orchestrator.active_tensors.empty()) continue;
-        auto& logits_tensor = g_decoder_orchestrator.active_tensors.back();
+        // Find the designated output logit tensor safely
+        int out_idx = g_decoder_orchestrator.output_tensor_index != -1 ? 
+                      g_decoder_orchestrator.output_tensor_index : 
+                      (int)g_decoder_orchestrator.active_tensors.size() - 1;
+
+        if (out_idx < 0 || out_idx >= (int)g_decoder_orchestrator.active_tensors.size()) continue;
+        auto& logits_tensor = g_decoder_orchestrator.active_tensors[out_idx];
         
         int best_token = 0;
         
@@ -183,8 +194,8 @@ void sys_run_consumer_loop(SysSPSCRingBuffer& ring, int prompt_size) {
             cl->CopyBufferRegion(g_shared_buffer.Get(), 0, logits_tensor.resource.Get(), 0, 32000 * sizeof(float));
             cl->CopyBufferRegion(readback_buffer.Get(), 0, logits_tensor.resource.Get(), 0, 32000 * sizeof(float));
             
-            std::swap(barriers[0].Transition.StateBefore, barriers[0].Transition.StateAfter);
-            std::swap(barriers[1].Transition.StateBefore, barriers[1].Transition.StateAfter);
+            barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE; barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST; barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
             cl->ResourceBarrier(2, barriers);
             cl->Close();
             
@@ -220,7 +231,7 @@ void sys_run_consumer_loop(SysSPSCRingBuffer& ring, int prompt_size) {
             }
             readback_buffer->Unmap(0, nullptr);
         } else {
-            best_token = 5; 
+            std::cerr << "\n[!] CPU inference not fully wired to Orchestrator. Halting loop.\n"; break; 
         }
 
         std::string output_text = g_tokenizer.detokenize({best_token});
@@ -240,3 +251,4 @@ void sys_run_consumer_loop(SysSPSCRingBuffer& ring, int prompt_size) {
 
     dpx_shutdown_shared_buffer();
 }
+

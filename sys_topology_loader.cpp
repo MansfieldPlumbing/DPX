@@ -23,11 +23,20 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
                             
     std::unordered_map<std::string, int> tensor_name_to_index;
     int next_index = 0;
+    input_tensor_index = -1;
+    output_tensor_index = -1;
             
     auto get_or_alloc_index = [&](const std::string& name) {
         if (tensor_name_to_index.find(name) == tensor_name_to_index.end()) {
             tensor_name_to_index[name] = next_index++;
             active_tensors.push_back({});
+            
+            if (name == "input_ids" || name == "input" || name == "token_ids" || name == "tokens") {
+                input_tensor_index = tensor_name_to_index[name];
+            }
+            if (name == "logits" || name == "output" || name == "output_logits" || name == "output_0") {
+                output_tensor_index = tensor_name_to_index[name];
+            }
         }
         return tensor_name_to_index[name];
     };
@@ -35,7 +44,10 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
     // 1. EXTRACT WEIGHT BLOBs INTO D3D12 VRAM
     sqlite3_stmt* stmt_tensors;
     sqlite3_prepare_v2(db, "SELECT name, data FROM tensor WHERE data IS NOT NULL", -1, &stmt_tensors, nullptr);
-    size_t loaded_bytes = 0;    while (sqlite3_step(stmt_tensors) == SQLITE_ROW) {
+    size_t loaded_bytes = 0;
+    int allocated_count = 0;
+    
+    while (sqlite3_step(stmt_tensors) == SQLITE_ROW) {
         std::string name = reinterpret_cast<const char*>(sqlite3_column_text(stmt_tensors, 0));
         const void* blob = sqlite3_column_blob(stmt_tensors, 1);
         int bytes = sqlite3_column_bytes(stmt_tensors, 1);
@@ -55,6 +67,11 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
         auto& t = active_tensors[idx];
         
         if (g_device) {
+            if (bytes <= 0) {
+                std::cerr << ">>> [WARNING] Skip empty weight allocation: " << name << std::endl;
+                continue;
+            }
+
             D3D12_HEAP_PROPERTIES heapProps = {};
             heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
             D3D12_RESOURCE_DESC resDesc = {};
@@ -64,7 +81,19 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
             resDesc.SampleDesc.Count = 1; resDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
             
             Microsoft::WRL::ComPtr<ID3D12Resource> temp_res;
-            g_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &resDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&temp_res));
+            HRESULT hr = g_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &resDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&temp_res));
+            
+            if (FAILED(hr)) {
+                std::cerr << ">>> [CRITICAL ERROR] CreateCommittedResource FAILED at allocation #" << allocated_count 
+                          << " (tensor: " << name << ") with HRESULT: " << hr << std::endl;
+                if (hr == DXGI_ERROR_DEVICE_REMOVED) {
+                    HRESULT reason = g_device->GetDeviceRemovedReason();
+                    std::cerr << ">>> GetDeviceRemovedReason: " << reason << std::endl;
+                }
+                break; // Stop loading to prevent console spam
+            }
+
+            allocated_count++;
             
             void* pData;
             temp_res->Map(0, nullptr, &pData);
@@ -121,4 +150,5 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
                     
     std::cout << ">> DB LOADED. " << compute_sequence.size() << " nodes bound. " 
               << (loaded_bytes / 1024 / 1024) << " MB weights cached natively." << std::endl;
+    std::cout << ">> Detected Graph Inputs/Outputs: Input Index=" << input_tensor_index << ", Output Index=" << output_tensor_index << std::endl;
 }

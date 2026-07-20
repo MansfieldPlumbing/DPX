@@ -38,8 +38,8 @@ void gpu_issue_residual_bypass_copy(ID3D12GraphicsCommandList* cl, DpxGpuTensor&
                 cl->CopyResource(out_tensor.resource.Get(), in_tensor.resource.Get());
                 
         // Transition back cleanly
-                std::swap(barriers[0].Transition.StateBefore, barriers[0].Transition.StateAfter);
-                        std::swap(barriers[1].Transition.StateBefore, barriers[1].Transition.StateAfter);
+                barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE; barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST; barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
                                 cl->ResourceBarrier(2, barriers);
                                     }
                                     }

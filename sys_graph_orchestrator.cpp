@@ -20,12 +20,16 @@ void dpx_ensure_resource(DpxGpuTensor& t) {
     if (!t.resource && g_device) {
         D3D12_HEAP_PROPERTIES hp = {}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC rd = {}; rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        rd.Width = 32 * 1024 * 1024; // 32MB dummy alloc for safety during dev
+        rd.Width = 1 * 1024 * 1024; // 32MB dummy alloc for safety during dev
         rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
         rd.SampleDesc.Count = 1; rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        g_device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&t.resource));
-        t.gpu_va = t.resource->GetGPUVirtualAddress();
+        HRESULT hr = g_device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&t.resource));
+        if (SUCCEEDED(hr) && t.resource) {
+            t.gpu_va = t.resource->GetGPUVirtualAddress();
+        } else {
+            std::cerr << ">>> [ERROR] dpx_ensure_resource failed to allocate resource! HRESULT: " << hr << std::endl;
+        }
     }
 }
 
@@ -78,14 +82,9 @@ void SysGraphOrchestrator::process_token_frame(uint64_t sequence_id, PolicyLaten
 
                     static Microsoft::WRL::ComPtr<ID3D12Fence> fence;
                     static uint64_t fence_val = 0;
-                    static HANDLE evt = CreateEvent(nullptr, FALSE, FALSE, nullptr);
                     if (!fence) g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
                     
                     gpu_dispatch_async(g_compute_queue.Get(), fence.Get(), fence_val, cmd_list);
-                    if (fence->GetCompletedValue() < fence_val) {
-                        fence->SetEventOnCompletion(fence_val, evt);
-                        WaitForSingleObject(evt, INFINITE);
-                    }
                 }
                 continue; 
             }

@@ -13,11 +13,11 @@ struct ActiveFrame {
 
 class SysSPSCRingBuffer {
 private:
-    ActiveFrame slots[3];
+    std::vector<ActiveFrame> slots; uint32_t ring_capacity;
     std::atomic<uint64_t> published_frame_id{0};
 
 public:
-    SysSPSCRingBuffer(uint32_t width, uint32_t height) {
+    SysSPSCRingBuffer(uint32_t width, uint32_t height, uint32_t depth = 3) : ring_capacity(depth) { slots.resize(ring_capacity);
         if (!g_device) return;
         D3D12_HEAP_PROPERTIES hp = {}; 
         hp.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -28,7 +28,7 @@ public:
         rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
         rd.SampleDesc.Count = 1; rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         
-        for (int i = 0; i < 3; ++i) {
+        for (uint32_t i = 0; i < ring_capacity; ++i) {
             slots[i].input_activations.shape = { (int)width, (int)height };
             g_device->CreateCommittedResource(
                 &hp, D3D12_HEAP_FLAG_NONE, &rd, 
@@ -43,7 +43,7 @@ public:
     }
 
     ~SysSPSCRingBuffer() {
-        for (int i = 0; i < 3; ++i) {
+        for (uint32_t i = 0; i < ring_capacity; ++i) {
             if (slots[i].input_activations.resource) {
                 slots[i].input_activations.resource->Unmap(0, nullptr);
             }
@@ -51,7 +51,7 @@ public:
     }
 
     void producer_push(uint64_t frame_id, const void* incoming_data, size_t bytes = sizeof(float)) {
-        uint32_t s = frame_id % 3;
+        uint32_t s = frame_id % ring_capacity;
         if (slots[s].mapped_data && incoming_data && bytes > 0) {
             memcpy(slots[s].mapped_data, incoming_data, bytes);
         }
@@ -64,6 +64,7 @@ public:
     }
 
     ActiveFrame& get_frame_memory(uint64_t frame_id) {
-        return slots[frame_id % 3];
+        return slots[frame_id % ring_capacity];
     }
 };
+
