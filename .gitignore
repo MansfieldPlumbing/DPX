@@ -1,6 +1,9 @@
 build/
-CMakeCache.txt
 *.exe
+*.dll
 *.lib
 *.exp
 *.obj
+*.db
+*.pdb
+*.ilk

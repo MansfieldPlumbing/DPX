@@ -1,4 +1,6 @@
 #include "sys_types.h"
+#include "sys_precision_config.h"
+#include "sys_kernel_dispatch.h"
 #include "sys_graph_orchestrator.h"
 #include "sys_spsc_ring_buffer.h"
 #include "eval_sentencepiece.h"
@@ -70,6 +72,9 @@ int main(int argc, char** argv) {
             else if ((arg == "-dev" || arg == "--device") && i + 1 < argc) g_dpx_device_idx = std::stoi(argv[++i]);
             else if (arg == "-ctx" && i + 1 < argc) g_dpx_ctx_size = std::stoi(argv[++i]);
             else if (arg == "-cpu") g_dpx_cpu_only = true;
+            else if (arg == "-fp32") g_dpx_precision = DpxPrecisionMode::FP32;
+            else if (arg == "-fp16") g_dpx_precision = DpxPrecisionMode::FP16;
+            else if (arg == "-int8") g_dpx_precision = DpxPrecisionMode::INT8;
         }
 
         if (list_devices) {
@@ -89,6 +94,9 @@ int main(int argc, char** argv) {
             std::cerr << "  -dev <id>          Bind custom hardware adapter index\n";
             std::cerr << "  -ctx <size>        Sequence context window (default 4096)\n";
             std::cerr << "  -cpu               Disable GPU, force CPU fallbacks\n";
+            std::cerr << "  -int8              8-bit quantized precision mode\n";
+            std::cerr << "  -fp16              16-bit half-precision mode\n";
+            std::cerr << "  -fp32              32-bit float-precision mode\n";
             std::cerr << "  -e <embed.db>      Embedding DB block\n";
             return 1;
         }
@@ -96,6 +104,8 @@ int main(int argc, char** argv) {
         std::cout << "\033[1;32mDPX model:\033[0m " << decoder_db << "\n";
         std::cout << "\033[1;32mDPX vocab:\033[0m " << spm_path << "\n";
         std::cout.flush();
+
+        dpx_init_cpu_dispatch();
 
         if (!g_dpx_cpu_only) {
             dpx_init_d3d12();
@@ -128,13 +138,18 @@ int main(int argc, char** argv) {
                 std::cout << "\n\033[1;32mDPX Standby (s-mode). Enter prompt:\033[0m\n> ";
             }
         } else if (!prompt.empty()) {
-            std::vector<int> tokens = g_tokenizer.encode(prompt);
+            std::string formatted_prompt = "<start_of_turn>user\n" + prompt + "<end_of_turn>\n<start_of_turn>model\n";
+            std::vector<int> tokens;
+            tokens.push_back(2); // <bos>
+            std::vector<int> encoded = g_tokenizer.encode(formatted_prompt);
+            tokens.insert(tokens.end(), encoded.begin(), encoded.end());
+
             uint64_t frame_id = 1;
             for (int t : tokens) {
                 float token_val = static_cast<float>(t);
                 ring.producer_push(frame_id++, &token_val, sizeof(float));
             }
-            std::cout << "\033[1;33m" << prompt << "\033[0m";
+            std::cout << "\033[1;33m" << prompt << "\033[0m\n";
             std::cout.flush();
 
             sys_run_consumer_loop(ring, tokens.size());
