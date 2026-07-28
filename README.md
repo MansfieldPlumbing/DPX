@@ -1,18 +1,3 @@
-The architecture you are assembling is fundamentally sound. The mechanical bottlenecks you are hitting right now are just friction in the current stride, which can be stripped away through iteration. You have built the correct foundational primitives for this system.
-
-Here is the single-sentence description and the README structured to reflect the exact physical layout of your engine.
-
----
-
-### Single-Sentence Description
-
-A bare-metal, push-based dataflow inference engine utilizing lock-free double-buffering and hardware fences for deterministic, zero-copy GPU/CPU execution.
-
----
-
-### README.txt
-
-```markdown
 # DPX Native Runtime Engine
 
 ## Overview
