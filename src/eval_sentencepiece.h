@@ -18,4 +18,8 @@ public:
     void load_from_file(const char* path);
     std::vector<int> encode(const std::string& input_text);
     std::string detokenize(const std::vector<int>& ids);
+    std::string get_piece(int id) const {
+        if (id >= 0 && id < (int)id_to_piece.size()) return id_to_piece[id];
+        return "";
+    }
 };

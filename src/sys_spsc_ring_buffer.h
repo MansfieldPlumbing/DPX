@@ -64,13 +64,15 @@ public:
     }
 
     void producer_push(uint64_t frame_id, const void* incoming_data, size_t bytes = sizeof(float)) {
-        uint64_t h = head.load(std::memory_order_relaxed);
-        uint32_t s = h % ring_capacity;
+        uint32_t s = frame_id % ring_capacity;
         if (slots[s].mapped_data && incoming_data && bytes > 0) {
             memcpy(slots[s].mapped_data, incoming_data, bytes);
         }
         slots[s].monotonic_id = frame_id;
-        head.store(h + 1, std::memory_order_release);
+        uint64_t h = head.load(std::memory_order_relaxed);
+        if (frame_id + 1 > h) {
+            head.store(frame_id + 1, std::memory_order_release);
+        }
     }
 
     uint64_t consumer_get_freshest() const {

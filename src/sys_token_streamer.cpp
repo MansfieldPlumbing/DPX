@@ -10,5 +10,11 @@ void sys_stream_token(int token_id) {
     if (!text.empty()) {
         std::cout << text << std::flush;
         if (g_ui_callback) g_ui_callback(text.c_str());
+    } else {
+        std::string piece = g_tokenizer.get_piece(token_id);
+        if (!piece.empty() && piece != "<bos>" && piece != "<eos>" && piece != "<pad>" && piece != "<unk>") {
+            std::cout << piece << std::flush;
+            if (g_ui_callback) g_ui_callback(piece.c_str());
+        }
     }
 }

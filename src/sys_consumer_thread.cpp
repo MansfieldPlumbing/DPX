@@ -114,8 +114,8 @@ void dpx_shutdown_shared_buffer() {
 
 void sys_run_consumer_loop(SysSPSCRingBuffer& ring, int prompt_size) {
     uint64_t freshest = ring.consumer_get_freshest();
-    // Start playback right before the first token in this prompt set
-    uint64_t last_consumed_id = freshest >= (uint64_t)prompt_size ? freshest - prompt_size : 0; 
+    // Start playback right before the first token in this prompt set (frame 1)
+    uint64_t last_consumed_id = freshest > (uint64_t)prompt_size ? (freshest - prompt_size - 1) : 0; 
     
     PolicyLatencyDropper policy(30); 
     int tokens_generated = 0;
@@ -200,6 +200,14 @@ void sys_run_consumer_loop(SysSPSCRingBuffer& ring, int prompt_size) {
         auto& dec_tensors = g_decoder_orchestrator.active_tensors;
         auto& embed_map = g_embed_orchestrator.tensor_name_to_index;
         auto& dec_map = g_decoder_orchestrator.tensor_name_to_index;
+
+        int embed_out = g_embed_orchestrator.output_tensor_index;
+        int dec_in = g_decoder_orchestrator.input_tensor_index;
+        if (embed_out != -1 && dec_in != -1 && embed_out < (int)embed_tensors.size() && dec_in < (int)dec_tensors.size()) {
+            dec_tensors[dec_in].resource = embed_tensors[embed_out].resource;
+            dec_tensors[dec_in].gpu_va = embed_tensors[embed_out].gpu_va;
+            dec_tensors[dec_in].cpu_data = embed_tensors[embed_out].cpu_data;
+        }
 
         if (embed_map.count("inputs_embeds") && dec_map.count("inputs_embeds")) {
             int src = embed_map["inputs_embeds"];
