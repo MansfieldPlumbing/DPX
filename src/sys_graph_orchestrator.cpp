@@ -104,7 +104,27 @@ static bool execute_single_node_seh(
                             uint32_t N = in_w.shape.size() > 0 ? in_w.shape[0] : 32000;
                             uint32_t K = in_w.shape.size() > 1 ? in_w.shape[1] * 32 : 2048;
                             g_matmul_kernel((float*)in_a.cpu_data, (float*)scales_ptr, (uint8_t*)in_w.cpu_data, (uint8_t*)zp_ptr, (float*)out.cpu_data, 1, N, K, 32);
+                        } else if (in_a.cpu_data && in_w.cpu_data && out.cpu_data && !in_w.is_q4) {
+                            // Unquantized FP32 MatMul (e.g. Q * K^T or Softmax * V in attention)
+                            extern void cpu_matmul_fp32(const float* A, const float* B, float* C, uint32_t M, uint32_t N, uint32_t K);
+                            uint32_t M = 1;
+                            uint32_t N = in_w.shape.size() > 1 ? in_w.shape[1] : (in_w.shape.size() > 0 ? in_w.shape[0] : 2048);
+                            uint32_t K = in_w.shape.size() > 0 ? in_w.shape[0] : 2048;
+                            cpu_matmul_fp32((float*)in_a.cpu_data, (float*)in_w.cpu_data, (float*)out.cpu_data, M, N, K);
                         } else if (in_a.cpu_data && out.cpu_data) {
+                            static int num_warns = 0;
+                            if (num_warns++ < 5) {
+                                printf("[MM DIAG] Node #%d MatMul missing: inputs_size=%d in0.data=%p in1.data=%p in1.scales=%p out.data=%p\n",
+                                    (int)ni, (int)node.input_registry_indices.size(), in_a.cpu_data, in_w.cpu_data, in_w.cpu_scales, out.cpu_data);
+                                for (size_t k = 0; k < node.input_registry_indices.size(); k++) {
+                                    int idx = node.input_registry_indices[k];
+                                    if (idx >= 0 && idx < (int)active_tensors.size()) {
+                                        printf("   input[%d] = %d (%s) cpu_data=%p cpu_scales=%p cpu_zp=%p\n",
+                                            (int)k, idx, active_tensors[idx].name.c_str(),
+                                            active_tensors[idx].cpu_data, active_tensors[idx].cpu_scales, active_tensors[idx].cpu_zp);
+                                    }
+                                }
+                            }
                             // No scales available — passthrough to avoid NaN propagation
                             uint64_t sz = 1;
                             if (!out.shape.empty()) { for (int d : out.shape) sz *= d; } else { sz = 2048; }

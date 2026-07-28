@@ -163,22 +163,36 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
         loaded_bytes += bytes;
         
         std::string base_name = name;
-        bool is_scale = false, is_zp = false;
-        if (name.find("_scale") != std::string::npos) {
+        bool is_scale = false, is_zp = false, is_quant = false;
+        if (name.find("_scales") != std::string::npos) {
+            base_name = name.substr(0, name.find("_scales"));
+            is_scale = true;
+        } else if (name.find("_scale") != std::string::npos) {
             base_name = name.substr(0, name.find("_scale"));
             is_scale = true;
         } else if (name.find("_zp") != std::string::npos) {
             base_name = name.substr(0, name.find("_zp"));
             is_zp = true;
+        } else if (name.find("_quant") != std::string::npos) {
+            base_name = name.substr(0, name.find("_quant"));
+            is_quant = true;
+        }
+
+        if (!base_name.empty() && base_name.back() == '_') {
+            base_name.pop_back();
         }
         
         int idx = get_or_alloc_index(base_name);
         auto& t = active_tensors[idx];
 
-        // Register exact name alias for scale/zp so node_io lookups resolve correctly
-        if ((is_scale || is_zp) && tensor_name_to_index.find(name) == tensor_name_to_index.end()) {
-            tensor_name_to_index[name] = idx;
-        }
+        // Register exact name aliases so node_io lookups resolve correctly to the same tensor slot
+        tensor_name_to_index[name] = idx;
+        tensor_name_to_index[base_name] = idx;
+        tensor_name_to_index[base_name + "_weight"] = idx;
+        tensor_name_to_index[base_name + "_weight_quant"] = idx;
+        tensor_name_to_index[base_name + "_weight_scale"] = idx;
+        tensor_name_to_index[base_name + "_weight_scales"] = idx;
+        tensor_name_to_index[base_name + "_weight_zp"] = idx;
 
         if (t.shape.empty() && !dims_str.empty()) {
             size_t pos = 0;
@@ -309,7 +323,7 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
         topo.op_code = parse_op_code(op);
                         
         sqlite3_stmt* stmt2;
-        sqlite3_prepare_v2(db, "SELECT kind, value_name FROM node_io WHERE node_id = ?", -1, &stmt2, nullptr);
+        sqlite3_prepare_v2(db, "SELECT kind, value_name FROM node_io WHERE node_id = ? ORDER BY slot", -1, &stmt2, nullptr);
         sqlite3_bind_int(stmt2, 1, node_id);
                                         
         while (sqlite3_step(stmt2) == SQLITE_ROW) {

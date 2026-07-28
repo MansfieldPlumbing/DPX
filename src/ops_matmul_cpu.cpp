@@ -42,3 +42,21 @@ void cpu_matmul_nbits_simd(
         }
     });
 }
+
+void cpu_matmul_fp32(
+    const float* A, const float* B, float* C,
+    uint32_t M, uint32_t N, uint32_t K
+) {
+    std::vector<uint32_t> m_indices(M);
+    std::iota(m_indices.begin(), m_indices.end(), 0);
+
+    std::for_each(std::execution::par_unseq, m_indices.begin(), m_indices.end(), [&](uint32_t m) {
+        for (uint32_t n = 0; n < N; ++n) {
+            float sum = 0.0f;
+            for (uint32_t k = 0; k < K; ++k) {
+                sum += A[m * K + k] * B[k * N + n];
+            }
+            C[m * N + n] = sum;
+        }
+    });
+}
