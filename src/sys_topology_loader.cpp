@@ -39,7 +39,9 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
             active_tensors.push_back({});
             active_tensors.back().name = name;
             
-            if (name == "input_ids" || name == "inputs_embeds") {
+            if (name == "input_ids") {
+                input_tensor_index = tensor_name_to_index[name];
+            } else if (name == "inputs_embeds" && input_tensor_index == -1) {
                 input_tensor_index = tensor_name_to_index[name];
             }
             if (name == "logits" || name == "output_logits") {
@@ -59,8 +61,14 @@ void SysGraphOrchestrator::load_from_db(const char* db_path, int target_sig) {
                 std::string kind = kind_text;
                 std::string name = name_text;
                 int idx = get_or_alloc_index(name);
-                if (kind == "in" && (name == "inputs_embeds" || name == "input_ids" || (input_tensor_index == -1 && name.find("past") == std::string::npos))) {
-                    input_tensor_index = idx;
+                if (kind == "in") {
+                    if (name == "input_ids") {
+                        input_tensor_index = idx;
+                    } else if (name == "inputs_embeds" && (input_tensor_index == -1 || active_tensors[input_tensor_index].name != "input_ids")) {
+                        input_tensor_index = idx;
+                    } else if (input_tensor_index == -1 && name.find("past") == std::string::npos && name.find("position") == std::string::npos && name.find("mask") == std::string::npos) {
+                        input_tensor_index = idx;
+                    }
                 }
                 if (kind == "out" && (name == "logits" || (output_tensor_index == -1 && name.find("present") == std::string::npos))) {
                     output_tensor_index = idx;

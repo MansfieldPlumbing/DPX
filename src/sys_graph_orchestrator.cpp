@@ -164,10 +164,12 @@ static bool execute_single_node_seh(
                         if (in_weights.cpu_data && out.cpu_data) {
                             int token_id = 0;
                             if (in_indices.cpu_data) {
-                                float float_val = *(float*)in_indices.cpu_data;
+                                int64_t int64_val = *(int64_t*)in_indices.cpu_data;
                                 int32_t raw_int = *(int32_t*)in_indices.cpu_data;
-                                if (raw_int >= 0 && raw_int < 256000) token_id = raw_int;
-                                else if (!std::isnan(float_val) && float_val >= 0.0f && float_val < 256000.0f) token_id = (int)float_val;
+                                float float_val = *(float*)in_indices.cpu_data;
+                                if (int64_val >= 0 && int64_val < 256000) token_id = static_cast<int>(int64_val);
+                                else if (raw_int >= 0 && raw_int < 256000) token_id = raw_int;
+                                else if (!std::isnan(float_val) && float_val >= 0.0f && float_val < 256000.0f) token_id = static_cast<int>(float_val);
                             }
                             uint32_t embed_dim = in_weights.shape.size() > 1 ? in_weights.shape[1] : 2048;
                             uint32_t num_embeds = in_weights.shape.size() > 0 ? in_weights.shape[0] : 256000;
